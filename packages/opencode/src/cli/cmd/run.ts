@@ -177,6 +177,11 @@ export const RunCommand = effectCmd({
         default: "default",
         describe: "format: default (formatted) or json (raw JSON events)",
       })
+      .option("stream", {
+        type: "boolean",
+        default: false,
+        describe: "stream output token-by-token instead of waiting for completion",
+      })
       .option("file", {
         alias: ["f"],
         type: "string",
@@ -697,8 +702,43 @@ export const RunCommand = effectCmd({
         async function loop(client: OpencodeClient, events: Awaited<ReturnType<typeof sdk.event.subscribe>>) {
           const toggles = new Map<string, boolean>()
           let error: string | undefined
+          const stream = args.stream
 
           for await (const event of events.stream) {
+            if (stream && event.type === "message.part.delta") {
+              const props = event.properties
+              if (props.sessionID !== sessionID) continue
+
+              if (args.format === "json") {
+                process.stdout.write(
+                  JSON.stringify({
+                    type: "text_delta",
+                    timestamp: Date.now(),
+                    sessionID,
+                    partID: props.partID,
+                    field: props.field,
+                    delta: props.delta,
+                  }) + EOL,
+                )
+                continue
+              }
+
+              if (props.field === "text" || props.field === "reasoning") {
+                const delta = props.delta as string
+                if (!delta) continue
+                if (props.field === "reasoning" && !thinking) continue
+                if (props.field === "reasoning") {
+                  if (!toggles.get("reasoning-started")) {
+                    process.stdout.write(UI.Style.TEXT_DIM + "\u001b[3mThinking: " + UI.Style.TEXT_NORMAL)
+                    toggles.set("reasoning-started", true)
+                  }
+                  process.stdout.write(delta)
+                  continue
+                }
+                process.stdout.write(delta)
+              }
+              continue
+            }
             if (
               event.type === "message.updated" &&
               event.properties.sessionID === sessionID &&
@@ -747,6 +787,10 @@ export const RunCommand = effectCmd({
 
               if (part.type === "text" && part.time?.end) {
                 if (emit("text", { part })) continue
+                if (stream) {
+                  if (!process.stdout.isTTY) process.stdout.write(EOL)
+                  continue
+                }
                 const text = part.text.trim()
                 if (!text) continue
                 if (!process.stdout.isTTY) {
@@ -760,6 +804,13 @@ export const RunCommand = effectCmd({
 
               if (part.type === "reasoning" && part.time?.end && thinking) {
                 if (emit("reasoning", { part })) continue
+                if (stream) {
+                  if (toggles.get("reasoning-started")) {
+                    process.stdout.write("\u001b[0m" + EOL)
+                    toggles.delete("reasoning-started")
+                  }
+                  continue
+                }
                 const text = part.text.trim()
                 if (!text) continue
                 const line = `Thinking: ${text}`
