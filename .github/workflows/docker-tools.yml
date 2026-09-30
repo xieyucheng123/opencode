@@ -1,0 +1,110 @@
+name: tools-image
+
+# 每天 02:00 UTC 巡检官方 release，有新 tag 才 build+push；
+# 上游不会回调我们，所以 webhook 语义由 repository_dispatch 承担（外部巡检脚本或手动触发）。
+on:
+  schedule:
+    # 每周一 02:00 UTC 巡检一次（2.x 发版频繁，不值得天天跟）
+    - cron: "0 2 * * 1"
+  repository_dispatch:
+    types: [upstream-image]
+  workflow_dispatch:
+    inputs:
+      base_tag:
+        description: "官方镜像 tag（空则自动取最新 release）"
+        required: false
+        default: ""
+      force:
+        description: "强制重打（true/false）"
+        required: false
+        default: "false"
+
+permissions:
+  contents: write # 回写 .upstream-tag
+  packages: write # push ghcr.io/xieyucheng123/opencode-tools
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/xieyucheng123/opencode-tools
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve upstream tag
+        id: upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 注意：2.x 只打 tag，不发 Release；必须跟 v2.* tag，不能用 gh release list（那是 1.x 线）。
+          # 滞后策略：只采用提交时间超过 3 天的 tag，避开刚发版的 hotfix churn。
+          if [ -n "${{ inputs.base_tag }}" ]; then
+            TAG="${{ inputs.base_tag }}"
+          elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            TAG="${{ github.event.client_payload.tag }}"
+          else
+            CUTOFF="$(date -u -d '3 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+            TAG=""
+            for T in $(gh api 'repos/anomalyco/opencode/tags?per_page=100' --jq '[.[].name | select(startswith("v2."))] | sort | reverse | .[]'); do
+              D="$(gh api "repos/anomalyco/opencode/commits/${T}" --jq '.commit.committer.date')"
+              if [[ "${D}" < "${CUTOFF}" ]]; then TAG="${T}"; break; fi
+            done
+            if [ -z "${TAG}" ]; then echo "no tag older than 3 days."; fi
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "upstream tag: ${TAG}"
+
+      - name: Skip if unchanged
+        id: check
+        run: |
+          PREV="$(cat .upstream-tag 2>/dev/null || true)"
+          FORCE="${{ inputs.force }}"
+          TAG="${{ steps.upstream.outputs.tag }}"
+          if [ -z "${TAG}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "no qualifying tag, skip."
+          elif [ "${PREV}" = "${TAG}" ] && [ "${FORCE}" != "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "no new upstream release (still ${PREV}), skip."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Buildx
+        if: steps.check.outputs.skip != 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: steps.check.outputs.skip != 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        if: steps.check.outputs.skip != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker-tools/Dockerfile.tools
+          push: true
+          build-args: |
+            BASE_TAG=${{ steps.upstream.outputs.tag }}
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.upstream.outputs.tag }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Record upstream tag
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          echo -n "${{ steps.upstream.outputs.tag }}" > .upstream-tag
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .upstream-tag
+          git diff --staged --quiet || git commit -m "chore: track upstream ${{ steps.upstream.outputs.tag }}"
+          git push
