@@ -38,19 +38,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 注意：2.x 只打 tag，不发 Release；必须跟 v2.* tag，不能用 gh release list（那是 1.x 线）。
-          # 滞后策略：只采用提交时间超过 3 天的 tag，避开刚发版的 hotfix churn。
+          # 以 GHCR 上的镜像 tag 为准（形如 2.0.x，无 v 前缀；git tag 另有 v 前缀，
+          # 且 Releases 页是 1.x 线，都不能直接用）。
+          # 滞后策略：只采用发布时间超过 3 天的 tag，避开刚发版的 hotfix churn。
+          normalize() { echo "${1#v}"; }
           if [ -n "${{ inputs.base_tag }}" ]; then
-            TAG="${{ inputs.base_tag }}"
-          elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            TAG="${{ github.event.client_payload.tag }}"
+            TAG="$(normalize "${{ inputs.base_tag }}")"
+          elif [ "${{ github.event_name }}" = "repository_dispatch" ] && [ -n "${{ github.event.client_payload.tag }}" ]; then
+            TAG="$(normalize "${{ github.event.client_payload.tag }}")"
           else
             CUTOFF="$(date -u -d '3 days ago' +%Y-%m-%dT%H:%M:%SZ)"
             TAG=""
-            for T in $(gh api 'repos/anomalyco/opencode/tags?per_page=100' --jq '[.[].name | select(startswith("v2."))] | sort | reverse | .[]'); do
-              D="$(gh api "repos/anomalyco/opencode/commits/${T}" --jq '.commit.committer.date')"
+            while read -r T D; do
               if [[ "${D}" < "${CUTOFF}" ]]; then TAG="${T}"; break; fi
-            done
+            done < <(gh api 'orgs/anomalyco/packages/container/opencode/versions?per_page=100' \
+              --jq '([.[] | {tags: .metadata.container.tags, created: .created_at} as $v | $v.tags[]? as $t | {tag: $t, created: $v.created} | select(.tag | test("^2\\.[0-9]+\\.[0-9]+$"))] | sort_by(.tag | split(".") | map(tonumber)) | reverse | .[] | "\(.tag) \(.created)")')
             if [ -z "${TAG}" ]; then echo "no tag older than 3 days."; fi
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
