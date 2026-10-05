@@ -72,9 +72,10 @@ RUN pip3 install --no-cache-dir --break-system-packages markitdown \
 RUN npm install -g wrangler \
  && wrangler --version
 
-# tailscale：官方静态二进制（2026-10-05 最新稳定版 v1.102.5，按架构二选一）。
-# 来源：https://pkgs.tailscale.com/stable/ ；容器运行时需 --device=/dev/net/tun 并执行 tailscale up 登录。
-ARG TAILSCALE_VERSION=1.102.5
+# tailscale：官方静态二进制（stable 页已验证存在的版本，按架构二选一）。
+# 来源：https://pkgs.tailscale.com/stable/ （注意：GH tag v1.102.5 先行，pkgs 包只到 1.102.4）
+# 容器运行时需 --device=/dev/net/tun 并执行 tailscale up 登录。
+ARG TAILSCALE_VERSION=1.102.4
 RUN ARCH="$(uname -m)"; case "$ARCH" in x86_64) TS_ARCH=amd64;; aarch64) TS_ARCH=arm64;; *) echo "unsupported arch $ARCH" && exit 1;; esac \
  && curl -fsSL -o /tmp/tailscale.tgz \
       "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_${TS_ARCH}.tgz" \
