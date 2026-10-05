@@ -61,9 +61,15 @@ RUN ARCH="$(uname -m)"; case "$ARCH" in x86_64) HCLOUD_ARCH=amd64;; aarch64) HCL
 RUN pip3 install --no-cache-dir --break-system-packages "${OCI_SPEC}" \
  && oci --version
 
-# markitdown：微软官方（PyPI）：markitdown 提供 CLI，markitdown-mcp 提供 MCP，共用同一环境。
+# markitdown：微软官方（PyPI）：mcp 提供 MCP，markitdown 提供 CLI。
 # 来源：https://github.com/microsoft/markitdown
-RUN pip3 install --no-cache-dir --break-system-packages markitdown markitdown-mcp
+# 注意：两者合装会触发 pip 依赖回溯爆炸（stable vs alpha 互斥），必须分层，
+# mcp 先装定 closure，CLI 后装。
+RUN pip3 install --no-cache-dir --break-system-packages markitdown-mcp \
+ && python3 -c "import markitdown_mcp"
+RUN pip3 install --no-cache-dir --break-system-packages markitdown \
+ && markitdown --version \
+ && python3 -c "import markitdown_mcp"
 
 # wrangler：Cloudflare 官方 CLI（npm 全局安装，需 node，已备好）
 RUN npm install -g wrangler \
