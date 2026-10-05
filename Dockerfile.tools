@@ -7,9 +7,8 @@ FROM ghcr.io/anomalyco/opencode:${BASE_TAG}
 
 USER root
 
-# 版本 pin（2026-09-30 在 hw41 上验证可用的版本）
+# 版本 pin（2026-09-30 在 hw41 上验证可用的版本；hcloud/tailscale 见各自小节）
 ARG GH_VERSION=2.97.0
-ARG HCLOUD_VERSION=7.2.12
 ARG ALIYUN_VERSION=3.3.16
 # aliyun / gh / hcloud 走官方二进制包；oci 走 pip（版本号以 PyPI 为准，构建时解析）
 ARG OCI_SPEC=oci-cli
@@ -18,12 +17,15 @@ SHELL ["/bin/sh", "-c"]
 
 # 基础运行时：node（npx 类 MCP）+ python+pip（uvx/pip 类 MCP）+ ca 证书
 # 同时兼容 apt（debian/ubuntu）和 apk（alpine）
+# 官方底座已实测：Alpine 3.24.2（musl），自带 apk + libgcc/libstdc++。
+# glibc 动态二进制需 gcompat 垫片（hcloud 实测可用；wrangler 仅 API 类命令可用，
+# 本地 workerd 调试跑不起来，要本地 dev 请改走 Debian sidecar）。
 RUN if command -v apt-get >/dev/null 2>&1; then \
       apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl python3 python3-pip nodejs npm \
       && rm -rf /var/lib/apt/lists/*; \
     elif command -v apk >/dev/null 2>&1; then \
-      apk add --no-cache ca-certificates curl python3 py3-pip nodejs npm; \
+      apk add --no-cache ca-certificates curl python3 py3-pip nodejs npm gcompat; \
     else echo "unsupported base OS" && exit 1; fi
 
 # gh：官方 tarball（Go 静态二进制，musl/glibc 通吃）
@@ -44,27 +46,44 @@ RUN ARCH="$(uname -m)"; case "$ARCH" in x86_64) ALIYUN_ARCH=amd64;; aarch64) ALI
  && rm -f /tmp/aliyun.tgz \
  && aliyun --version
 
-# hcloud（华为云 KooCLI）：需要 glibc；包地址以华为云官方发布页为准，
-# TODO: 确认下载 URL 后填入 HCLOUD_URL（不同版本路径会变）
-ARG HCLOUD_URL=""
-RUN if [ -z "${HCLOUD_URL}" ]; then echo "skip hcloud: set --build-arg HCLOUD_URL=<tgz url>"; else \
-      curl -fsSL -o /tmp/hcloud.tgz "${HCLOUD_URL}" \
-      && tar -xzf /tmp/hcloud.tgz -C /tmp \
-      && mv /tmp/hcloud /usr/local/bin/hcloud \
-      && rm -f /tmp/hcloud.tgz \
-      && hcloud --help | head -3; fi
+# hcloud（华为云 KooCLI）：官方文档推荐的 OBS latest 直链（按架构二选一）。
+# 来源：https://support.huaweicloud.com/intl/en-us/qs-hcli/hcli_02_003_02.html
+# 注意这是浮动 latest（华为官方即如此发布），如需 pin 请把 latest 换成版本路径。
+RUN ARCH="$(uname -m)"; case "$ARCH" in x86_64) HCLOUD_ARCH=amd64;; aarch64) HCLOUD_ARCH=arm64;; *) echo "unsupported arch $ARCH" && exit 1;; esac \
+ && curl -fsSL -o /tmp/hcloud.tgz \
+      "https://ap-southeast-3-hwcloudcli.obs.ap-southeast-3.myhuaweicloud.com/cli/latest/huaweicloud-cli-linux-${HCLOUD_ARCH}.tar.gz" \
+ && tar -xzf /tmp/hcloud.tgz -C /tmp \
+ && mv /tmp/hcloud /usr/local/bin/hcloud \
+ && rm -f /tmp/hcloud.tgz \
+ && hcloud version
 
 # oci-cli：pip 安装（Oracle 官方发布到 PyPI）
 RUN pip3 install --no-cache-dir --break-system-packages "${OCI_SPEC}" \
  && oci --version
 
-# MCP 运行时就绪（node/npx、python3/pip 已装）。
-# lmnr / cloudflare / markitdown / tailscale 建议以 opencode.jsonc 的 mcp.servers
-# 声明式接入（local stdio，经 npx/uvx 拉起），不要再往镜像里塞：
-# {
-#   "mcp": { "servers": {
-#     "markitdown": { "type": "local", "command": ["uvx", "markitdown-mcp"] },
-#     "cloudflare": { "type": "remote", "url": "https://..." }
-#   } }
-# }
-# TODO: 四个组件的准确包名/URL 由你确认后填入，镜像本身无需改动。
+# markitdown：微软官方（PyPI）：markitdown 提供 CLI，markitdown-mcp 提供 MCP，共用同一环境。
+# 来源：https://github.com/microsoft/markitdown
+RUN pip3 install --no-cache-dir --break-system-packages markitdown markitdown-mcp
+
+# wrangler：Cloudflare 官方 CLI（npm 全局安装，需 node，已备好）
+RUN npm install -g wrangler \
+ && wrangler --version
+
+# tailscale：官方静态二进制（2026-10-05 最新稳定版 v1.102.5，按架构二选一）。
+# 来源：https://pkgs.tailscale.com/stable/ ；容器运行时需 --device=/dev/net/tun 并执行 tailscale up 登录。
+ARG TAILSCALE_VERSION=1.102.5
+RUN ARCH="$(uname -m)"; case "$ARCH" in x86_64) TS_ARCH=amd64;; aarch64) TS_ARCH=arm64;; *) echo "unsupported arch $ARCH" && exit 1;; esac \
+ && curl -fsSL -o /tmp/tailscale.tgz \
+      "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_${TS_ARCH}.tgz" \
+ && tar -xzf /tmp/tailscale.tgz -C /tmp \
+ && mv "/tmp/tailscale_${TAILSCALE_VERSION}_${TS_ARCH}/tailscale" /usr/local/bin/tailscale \
+ && mv "/tmp/tailscale_${TAILSCALE_VERSION}_${TS_ARCH}/tailscaled" /usr/local/bin/tailscaled \
+ && rm -rf /tmp/tailscale.tgz "/tmp/tailscale_${TAILSCALE_VERSION}_${TS_ARCH}" \
+ && tailscale version
+
+# lmnr：Laminar 官方 CLI 为 npm 包 lmnr-cli（npx lmnr-cli setup），node 运行时已备好，无需 bake；
+# 可观测打点仍走 @lmnr-ai/opencode-plugin（见 opencode.mcp.jsonc）。
+# - markitdown：local stdio，command ["markitdown-mcp"]（已随上一步装好）
+# - cloudflare：远端 Code Mode server（官方 recommended），https://mcp.cloudflare.com/mcp
+# - tailscale：官方远端 https://tailscale.mcp.kapa.ai/（零安装，见 https://tailscale.com/docs/develop-with-ai）
+# - lmnr：Laminar 可观测是 opencode 插件（lmnr-ai/lmnr-opencode-plugin），非二进制，见 https://laminar.sh/docs/integrations/opencode
