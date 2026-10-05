@@ -1,29 +1,12 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  // Laminar 可观测：opencode 插件（非二进制，无需进镜像）
-  // 来源：https://github.com/lmnr-ai/lmnr-opencode-plugin
-  // 需配合环境变量 LMNR_PROJECT_API_KEY 使用（启动 opencode 的 shell 里 export）
-  "plugins": ["@lmnr-ai/opencode-plugin"],
+  // CLI 优先：镜像里已有 CLI 的能力默认不再配重复 MCP。
+  // - markitdown：markitdown 命令（镜像内）
+  // - cloudflare：wrangler 命令（镜像内）
+  // - tailscale：tailscale/tailscaled 命令（镜像内；kapa 文档远端非必需，已剔除）
+  // - lmnr：npx lmnr-cli（镜像内含 node 运行时；打点插件已剔除，不上传 trace）
+  // 此文件保留作将来接入无 CLI 的纯远端服务时的模板。
   "mcp": {
-    "servers": {
-      // 微软官方 markitdown-mcp（已 bake 进镜像，stdio 拉起）
-      // 来源：https://github.com/microsoft/markitdown/tree/main/packages/markitdown-mcp
-      "markitdown": {
-        "type": "local",
-        "command": ["markitdown-mcp"]
-      },
-      // Cloudflare 官方 recommended：Code Mode server（远端，零安装）
-      // 来源：https://github.com/cloudflare/mcp-server-cloudflare
-      "cloudflare": {
-        "type": "remote",
-        "url": "https://mcp.cloudflare.com/mcp"
-      },
-      // Tailscale 官方远端（零安装）
-      // 来源：https://tailscale.com/docs/develop-with-ai
-      "tailscale": {
-        "type": "remote",
-        "url": "https://tailscale.mcp.kapa.ai/"
-      }
-    }
+    "servers": {}
   }
 }
