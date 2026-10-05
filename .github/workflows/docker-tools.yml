@@ -1,6 +1,6 @@
 name: tools-image
 
-# 每天 02:00 UTC 巡检官方 release，有新 tag 才 build+push；
+# 每周一 02:00 UTC 巡检官方 v2 tag（只采用提交超 3 天的），有新 tag 才 build+push；
 # 上游不会回调我们，所以 webhook 语义由 repository_dispatch 承担（外部巡检脚本或手动触发）。
 on:
   schedule:
@@ -89,7 +89,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker-tools/Dockerfile.tools
+          file: ./Dockerfile.tools
           push: true
           build-args: |
             BASE_TAG=${{ steps.upstream.outputs.tag }}
