@@ -61,15 +61,12 @@ RUN ARCH="$(uname -m)"; case "$ARCH" in x86_64) HCLOUD_ARCH=amd64;; aarch64) HCL
 RUN pip3 install --no-cache-dir --break-system-packages "${OCI_SPEC}" \
  && oci --version
 
-# markitdown：微软官方（PyPI）：mcp 提供 MCP，markitdown 提供 CLI。
+# markitdown：微软官方（PyPI），只装 CLI（markitdown 命令）。
 # 来源：https://github.com/microsoft/markitdown
-# 注意：两者合装会触发 pip 依赖回溯爆炸（stable vs alpha 互斥），必须分层，
-# mcp 先装定 closure，CLI 后装。
-RUN pip3 install --no-cache-dir --break-system-packages markitdown-mcp \
- && python3 -c "import markitdown_mcp"
+# 注意：曾同时装 markitdown-mcp（MCP 薄包装），两者依赖互斥导致构建失败；
+# CLI 与 MCP 功能重叠，按 CLI 优先只留 CLI。
 RUN pip3 install --no-cache-dir --break-system-packages markitdown \
- && markitdown --version \
- && python3 -c "import markitdown_mcp"
+ && markitdown --version
 
 # wrangler：Cloudflare 官方 CLI（npm 全局安装，需 node，已备好）
 RUN npm install -g wrangler \
@@ -87,8 +84,11 @@ RUN ARCH="$(uname -m)"; case "$ARCH" in x86_64) TS_ARCH=amd64;; aarch64) TS_ARCH
  && rm -rf /tmp/tailscale.tgz "/tmp/tailscale_${TAILSCALE_VERSION}_${TS_ARCH}" \
  && tailscale version
 
-# lmnr：Laminar 官方 CLI 为 npm 包 lmnr-cli（npx lmnr-cli setup），node 运行时已备好，无需 bake；
-# 可观测打点仍走 @lmnr-ai/opencode-plugin（见 opencode.mcp.jsonc）。
+# lmnr：Laminar 官方 CLI（npm 包 lmnr-cli：鉴权、SQL 查 trace、管数据集），全局安装。
+# 来源：https://laminar.sh/docs/platform/cli
+# 注意：可观测打点插件（上传 trace）已按要求剔除；MCP 查询与 CLI 功能重叠，按 CLI 优先只留 CLI。
+RUN npm install -g lmnr-cli \
+ && npx -y lmnr-cli --version
 # - markitdown：local stdio，command ["markitdown-mcp"]（已随上一步装好）
 # - cloudflare：远端 Code Mode server（官方 recommended），https://mcp.cloudflare.com/mcp
 # - tailscale：官方远端 https://tailscale.mcp.kapa.ai/（零安装，见 https://tailscale.com/docs/develop-with-ai）
