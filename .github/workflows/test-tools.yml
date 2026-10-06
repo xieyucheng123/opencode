@@ -50,7 +50,7 @@ jobs:
           echo "$OCI_CONFIG_B64" | base64 -d > ~/.oci/config
           echo "$OCI_KEY_PEM" > ~/.oci/key.pem
           chmod 600 ~/.oci/config ~/.oci/key.pem
-          sed -i 's|^key_file=.*|key_file=/root/.oci/key.pem|' ~/.oci/config
+          sed -i "s|^key_file=.*|key_file=$HOME/.oci/key.pem|" ~/.oci/config
           oci iam region list --config-file ~/.oci/config
 
       - name: wrangler
