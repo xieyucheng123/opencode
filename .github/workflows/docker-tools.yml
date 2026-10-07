@@ -26,6 +26,8 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/xieyucheng123/opencode-tools
+  SWR_REGISTRY: swr.cn-north-9.myhuaweicloud.com
+  SWR_IMAGE: swr.cn-north-9.myhuaweicloud.com/xieyucheng123/opencode-tools
 
 jobs:
   build:
@@ -86,6 +88,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Login to SWR
+        if: steps.check.outputs.skip != 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.SWR_REGISTRY }}
+          username: cn-north-9@${{ secrets.HCLOUD_AK }}
+          password: ${{ secrets.HCLOUD_SK }}
+
       - name: Build and push
         if: steps.check.outputs.skip != 'true'
         uses: docker/build-push-action@v6
@@ -98,6 +108,8 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:${{ steps.upstream.outputs.tag }}
             ${{ env.IMAGE }}:latest
+            ${{ env.SWR_IMAGE }}:${{ steps.upstream.outputs.tag }}
+            ${{ env.SWR_IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
