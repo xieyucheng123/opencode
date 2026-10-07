@@ -80,14 +80,6 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to GHCR
-        if: steps.check.outputs.skip != 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Login to SWR via token
         if: steps.check.outputs.skip != 'true'
         env:
@@ -98,6 +90,14 @@ jobs:
           curl -fsSL -o /tmp/hcloud.tgz "https://ap-southeast-3-hwcloudcli.obs.ap-southeast-3.myhuaweicloud.com/cli/latest/huaweicloud-cli-linux-amd64.tar.gz"
           tar -xzf /tmp/hcloud.tgz -C /tmp
           /tmp/hcloud SWR CreateAuthorizationToken --cli-region=cn-north-9 --cli-access-key="$HCLOUD_AK" --cli-secret-key="$HCLOUD_SK" > ~/.docker/config.json
+
+      - name: Login to GHCR
+        if: steps.check.outputs.skip != 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
         if: steps.check.outputs.skip != 'true'
