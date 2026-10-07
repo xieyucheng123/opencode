@@ -90,6 +90,16 @@ RUN ARCH="$(uname -m)"; case "$ARCH" in x86_64) TS_ARCH=amd64;; aarch64) TS_ARCH
 # 注意：可观测打点插件（上传 trace）已按要求剔除；MCP 查询与 CLI 功能重叠，按 CLI 优先只留 CLI。
 RUN npm install -g lmnr-cli \
  && npx -y lmnr-cli --version
+
+# terraform:HashiCorp official zip (Go static binary, musl/glibc universal; unpack with python, no unzip needed).
+ARG TERRAFORM_VERSION=1.16.5
+RUN ARCH="$(uname -m)"; case "$ARCH" in x86_64) TF_ARCH=amd64;; aarch64) TF_ARCH=arm64;; *) echo "unsupported arch $ARCH" && exit 1;; esac \
+ && curl -fsSL -o /tmp/terraform.zip \
+      "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${TF_ARCH}.zip" \
+ && python3 -c "import zipfile; zipfile.ZipFile('/tmp/terraform.zip').extract('terraform', '/tmp')" \
+ && mv /tmp/terraform /usr/local/bin/terraform \
+ && rm -f /tmp/terraform.zip \
+ && terraform version
 # - markitdown：local stdio，command ["markitdown-mcp"]（已随上一步装好）
 # - cloudflare：远端 Code Mode server（官方 recommended），https://mcp.cloudflare.com/mcp
 # - tailscale：官方远端 https://tailscale.mcp.kapa.ai/（零安装，见 https://tailscale.com/docs/develop-with-ai）
