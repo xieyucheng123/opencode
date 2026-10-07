@@ -89,8 +89,8 @@ jobs:
           mkdir -p ~/.docker
           curl -fsSL -o /tmp/hcloud.tgz "https://ap-southeast-3-hwcloudcli.obs.ap-southeast-3.myhuaweicloud.com/cli/latest/huaweicloud-cli-linux-amd64.tar.gz"
           tar -xzf /tmp/hcloud.tgz -C /tmp
-          /tmp/hcloud SWR CreateAuthorizationToken --cli-region=cn-north-9 --cli-access-key="$HCLOUD_AK" --cli-secret-key="$HCLOUD_SK" > /tmp/swr.json
-          python3 -c "import json,os; c=os.path.expanduser('~/.docker/config.json'); d=json.load(open(c)) if os.path.exists(c) else {}; d.setdefault('auths',{}).update(json.load(open('/tmp/swr.json')).get('auths',{})); json.dump(d,open(c,'w'))"
+          echo y | /tmp/hcloud SWR CreateAuthorizationToken --cli-region=cn-north-9 --cli-access-key="$HCLOUD_AK" --cli-secret-key="$HCLOUD_SK" > /tmp/swr.json
+          python3 -c "import json,os; t=json.load(open('/tmp/swr.json')); assert t.get('auths'), t; c=os.path.expanduser('~/.docker/config.json'); d=json.load(open(c)) if os.path.exists(c) else {}; d.setdefault('auths',{}).update(t['auths']); json.dump(d,open(c,'w')); print('swr auth merged')"
 
       - name: Login to GHCR
         if: steps.check.outputs.skip != 'true'
