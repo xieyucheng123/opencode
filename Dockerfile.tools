@@ -98,6 +98,7 @@ RUN ARCH="$(uname -m)"; case "$ARCH" in x86_64) TF_ARCH=amd64;; aarch64) TF_ARCH
       "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${TF_ARCH}.zip" \
  && python3 -c "import zipfile; zipfile.ZipFile('/tmp/terraform.zip').extract('terraform', '/tmp')" \
  && mv /tmp/terraform /usr/local/bin/terraform \
+ && chmod +x /usr/local/bin/terraform \
  && rm -f /tmp/terraform.zip \
  && terraform version
 # - markitdown：local stdio，command ["markitdown-mcp"]（已随上一步装好）
