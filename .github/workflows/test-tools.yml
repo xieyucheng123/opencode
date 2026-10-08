@@ -7,7 +7,7 @@ name: test-tools
 #   ALIYUN_AK, ALIYUN_SK,
 #   OCI_CONFIG_B64, OCI_KEY_PEM,
 #   CLOUDFLARE_API_TOKEN
-# （tailscale / markitdown / lmnr-cli 无需 key，只验版本与本地转码）
+# （git / tailscale / markitdown / lmnr-cli 无需 key，只验版本与本地操作）
 on:
   workflow_dispatch:
     inputs:
@@ -34,6 +34,13 @@ jobs:
     steps:
       - name: gh
         run: gh auth status
+
+      - name: git (版本 + 本地提交冒烟, 无需 key)
+        run: |
+          git --version
+          rm -rf /tmp/git-smoke && mkdir -p /tmp/git-smoke && cd /tmp/git-smoke
+          git init -q && git config user.email tools@test && git config user.name tools
+          echo hi > f.txt && git add . && git commit -qm init && git log --oneline
 
       - name: hcloud (dryrun, 不真实执行)
         run: hcloud ECS NovaListServers --cli-region=cn-north-4 --cli-access-key="$HCLOUD_AK" --cli-secret-key="$HCLOUD_SK" --dryrun
