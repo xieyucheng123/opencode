@@ -68,6 +68,12 @@ jobs:
           printf '# hi\n\nhello\n' > /tmp/t.md
           markitdown /tmp/t.md
 
+      - name: baked-config (非涉密默认配置已烘入镜像)
+        run: |
+          test -f /root/.config/opencode/opencode.jsonc
+          test -f /root/.config/opencode/AGENTS.md
+          grep -q muse-spark /root/.config/opencode/opencode.jsonc
+
       - name: tailscale + lmnr-cli (版本，无需 key/daemon)
         run: |
           tailscale version

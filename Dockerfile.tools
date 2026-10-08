@@ -102,6 +102,11 @@ RUN ARCH="$(uname -m)"; case "$ARCH" in x86_64) TF_ARCH=amd64;; aarch64) TF_ARCH
  && chmod +x /usr/local/bin/terraform \
  && rm -f /tmp/terraform.zip \
  && terraform version
+# 非涉密默认配置烘入镜像（各机器行为一致；密钥仍走 env/挂载，不进镜像）：
+# - opencode.jsonc：默认模型走 LiteLLM 网关，地址/key 由 {env:} 注入
+# - AGENTS.md：agent 使用说明（直连模型通用版）
+# 注意：部署侧不要再挂载这两个文件，否则会盖住烘入的版本。
+COPY docker/opencode.jsonc docker/AGENTS.md /root/.config/opencode/
 # - markitdown：local stdio，command ["markitdown-mcp"]（已随上一步装好）
 # - cloudflare：远端 Code Mode server（官方 recommended），https://mcp.cloudflare.com/mcp
 # - tailscale：官方远端 https://tailscale.mcp.kapa.ai/（零安装，见 https://tailscale.com/docs/develop-with-ai）
