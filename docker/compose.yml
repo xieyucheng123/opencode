@@ -1,0 +1,28 @@
+name: opencode-prod
+services:
+  opencode-prod:
+    # 日常跟随 stable；生产环境建议 pin digest（见 README 跟版一节）
+    image: ghcr.io/xieyucheng123/opencode-tools:stable
+    # 华为云 SWR 镜像（国内机器可选）：
+    # image: swr.cn-north-9.myhuaweicloud.com/xieyucheng123/opencode-tools:stable
+    container_name: opencode-prod
+    network_mode: host
+    env_file:
+      - .env
+    volumes:
+      - prod-work:/workspace
+      - prod-data:/root/.local/share/opencode
+      - ./config/home/.aliyun:/root/.aliyun:ro
+      - ./config/home/.oci:/root/.oci:ro
+      # 可选：宿主机业务目录映射（按需改宿主机侧路径；注释掉后引用该路径的老会话会降级显示）：
+      # - /root/workspace:/old-workspace
+    entrypoint:
+      - /bin/sh
+      - -c
+      - ' yes | hcloud configure set --cli-access-key="$HCLOUD_AK" --cli-secret-key="$HCLOUD_SK" --cli-region=cn-north-4 >/dev/null 2>&1; sed -i "s/\"agreePrivacy\": \"false\"/\"agreePrivacy\": \"true\"/" /root/.hcloud/config.json 2>/dev/null; if [ ! -d /workspace/.git ]; then git init -b main /workspace >/dev/null 2>&1; git -C /workspace config user.name opencode-prod; git -C /workspace config user.email opencode-prod@local; git -C /workspace commit --allow-empty -m init >/dev/null 2>&1; fi; exec opencode "$@" '
+      - --
+    command: serve --port 4097 --hostname 0.0.0.0
+    restart: unless-stopped
+volumes:
+  prod-data:
+  prod-work:
