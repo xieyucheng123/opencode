@@ -22,6 +22,7 @@ deploy/
 
 ```
 cp docker/.env.example .env   # 填值，chmod 600 .env
+docker login swr.cn-north-9.myhuaweicloud.com   # 新机器拉镜像前先登录（GHCR 同理）
 docker compose up -d
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:4097/
 docker compose down   # 停机（卷保留，数据不丢）
@@ -46,19 +47,6 @@ docker run --rm -v opencode-prod_prod-data:/d -v ./backup:/b alpine tar xzf /b/p
 docker compose restart
 ```
 
-## 本机差异（compose.override.yml）
-
-仓库是唯一源：`compose.yml` 与仓库保持完全一致，本机只用不改。机器特有的东西放同目录的 `compose.override.yml`（compose 自动合并），例如 digest pin、宿主机业务目录映射：
-
-```
-services:
-  opencode-prod:
-    image: swr.cn-north-9.myhuaweicloud.com/xieyucheng123/opencode-tools@sha256:<digest>
-    volumes:
-      - /root/workspace:/old-workspace
-```
-
 ## 跟版
 
-- 日常：`compose.yml` 用 `stable` 标签，`docker compose pull && docker compose up -d`。
-- 生产 pin：在 `image:` 后加 `@sha256:<digest>`，`up -d` 即可。`stable` 标签只在验证后手动前移。
+改 `compose.yml` 里 `image:` 的 digest 一行并提交，`docker compose pull && docker compose up -d`。`stable` 标签只在验证后手动前移（标记作用）。
