@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # oci-cli：Oracle 官方 PyPI，走 pip bake（hw21 到 PyPI 的直连经 pref-500 规则，构建期在 GH hosted runner 上稳定）
 ARG OCI_SPEC=oci-cli
-RUN pip install --no-cache-dir --break-system-packages "${OCI_SPEC}" \
+RUN pip install --no-cache-dir --break-system-packages --ignore-installed "${OCI_SPEC}" \
  && oci --version
 
 # wrangler：Cloudflare 官方 npm 包，全局安装（guard workflow 注释：hw21 到 npm 抖动，
