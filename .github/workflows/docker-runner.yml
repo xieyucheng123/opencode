@@ -1,0 +1,93 @@
+name: runner-image
+
+# 自托管 runner 标准化镜像：Dockerfile.runner → 双 registry（GHCR + SWR 乌兰一/华北九 cn-north-9）
+# 版本 tag + stable 双标签，compose 用 digest pin（与 opencode-tools 同流程，见 docker/README.md 铁律）。
+on:
+  workflow_dispatch:
+    inputs:
+      runner_version:
+        description: "官方 runner 版本（在线 runner 当前为 2.337.0，保持一致）"
+        required: false
+        default: "2.337.0"
+      force:
+        description: "强制重打（true/false）"
+        required: false
+        default: "false"
+  push:
+    branches: [dev]
+    paths:
+      - "Dockerfile.runner"
+      - ".github/workflows/docker-runner.yml"
+      - ".github/workflows/test-runner.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/xieyucheng123/gh-runner
+  SWR_REGISTRY: swr.cn-north-9.myhuaweicloud.com
+  SWR_IMAGE: swr.cn-north-9.myhuaweicloud.com/xieyucheng123/gh-runner
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to SWR via token
+        env:
+          HCLOUD_AK: ${{ secrets.HCLOUD_AK }}
+          HCLOUD_SK: ${{ secrets.HCLOUD_SK }}
+        run: |
+          mkdir -p ~/.docker
+          curl -fsSL -o /tmp/hcloud.tgz "https://ap-southeast-3-hwcloudcli.obs.ap-southeast-3.myhuaweicloud.com/cli/latest/huaweicloud-cli-linux-amd64.tar.gz"
+          tar -xzf /tmp/hcloud.tgz -C /tmp
+          echo y | /tmp/hcloud SWR CreateAuthorizationToken --cli-region=cn-north-9 --cli-access-key="$HCLOUD_AK" --cli-secret-key="$HCLOUD_SK" > /tmp/swr.json 2> /tmp/hcloud.err; echo "hcloud exit: $?"; wc -c /tmp/swr.json; head -c 120 /tmp/hcloud.err
+          python3 -c "import json,os,re; t=json.loads(re.search(r'\{.*\}', open('/tmp/swr.json').read(), re.S).group(0)); assert t.get('auths'); c=os.path.expanduser('~/.docker/config.json'); d=json.load(open(c)) if os.path.exists(c) else {}; d.setdefault('auths',{}).update(t['auths']); json.dump(d,open(c,'w')); print('swr auth merged')"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (version + stable + latest 同 digest)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.runner
+          push: true
+          build-args: |
+            RUNNER_VERSION=${{ inputs.runner_version || '2.337.0' }}
+          tags: |
+            ${{ env.IMAGE }}:${{ inputs.runner_version || '2.337.0' }}
+            ${{ env.IMAGE }}:stable
+            ${{ env.IMAGE }}:latest
+            ${{ env.SWR_IMAGE }}:${{ inputs.runner_version || '2.337.0' }}
+            ${{ env.SWR_IMAGE }}:stable
+            ${{ env.SWR_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+
+      - name: Digest summary (compose pin 用)
+        run: |
+          echo "## gh-runner image" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- tags: \`${{ inputs.runner_version || '2.337.0' }}\`, \`stable\`, \`latest\`（三 tag 同 digest）" >> "$GITHUB_STEP_SUMMARY"
+          echo "- digest: \`${{ steps.build.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "compose 切换（先备份 live compose，不动在线容器）：" >> "$GITHUB_STEP_SUMMARY"
+          echo '```yaml' >> "$GITHUB_STEP_SUMMARY"
+          echo "# image: swr.cn-north-9.myhuaweicloud.com/xieyucheng123/gh-runner@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

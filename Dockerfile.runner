@@ -1,0 +1,45 @@
+# Self-hosted GH runner（hw21：guard + oci + linkseek）标准化镜像
+# 用法：docker build -f Dockerfile.runner -t ghcr.io/xieyucheng123/gh-runner:<RUNNER_VERSION> .
+# 铁律：runner 运行环境的一切变更必须进此文件走 CI（见 docker/README.md 事故记录），
+# 禁止 docker exec 进容器手装（黑户删容器即复发）。
+#
+# 依赖来源（2026-10-09/10 失败日志 exit 127 + workflow yaml 实测）：
+# - link-seek/guard-rules sync-r2.yml：python3（rules.json 校验通过）+ wrangler（缺失，
+#   `wrangler: command not found`，run 37911420838）+ node/npm（wrangler 运行时）
+# - xieyucheng123/oci-ops rotate-egress.yml：pip（缺失，`pip: command not found`，
+#   run 37972961410）+ python3（内联 json/jmespath 解析）+ oci-cli + git + bash
+# - xieyucheng123/oci-ops retry-arm.yml：`command -v oci || pip install ...` 同上缺 pip
+#   （run 37997482405），其余同 rotate
+# - linkseek org runner（hw21-linkseek-org）：暂无独立失败样本，按基线 git/curl/python3 覆盖
+# 最小并集：python3 + pip(pip3 兼容 pip 裸命令) + oci-cli（bake，避免运行时 pip）+
+#           nodejs/npm + wrangler + git/curl/jq/bash（base 官方镜像多已自带，显式确保）
+ARG RUNNER_VERSION=2.337.0
+FROM ghcr.io/actions/actions-runner:${RUNNER_VERSION}
+
+USER root
+SHELL ["/bin/bash", "-c"]
+
+# 官方 runner 底座为 Ubuntu（apt）。显式安装 job 真实依赖；pip 裸命令兼容（workflow 调的是 pip 不是 pip3）。
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl git jq bash \
+      python3 python3-pip nodejs npm \
+    && rm -rf /var/lib/apt/lists/* \
+ && command -v pip >/dev/null 2>&1 || ln -s "$(command -v pip3)" /usr/local/bin/pip \
+ && python3 --version && pip --version && git --version && node --version && npm --version
+
+# oci-cli：Oracle 官方 PyPI，走 pip bake（hw21 到 PyPI 的直连经 pref-500 规则，构建期在 GH hosted runner 上稳定）
+ARG OCI_SPEC=oci-cli
+RUN pip install --no-cache-dir --break-system-packages "${OCI_SPEC}" \
+ && oci --version
+
+# wrangler：Cloudflare 官方 npm 包，全局安装（guard workflow 注释：hw21 到 npm 抖动，
+# 故必须 bake，运行时不再 npm install）
+RUN npm install -g wrangler \
+ && wrangler --version
+
+# 回归冒烟：job 入口命令必须全部存在（对应上面三个 workflow 的真实调用）
+RUN python3 -c "import json; print('py ok')" \
+ && pip --version && oci --version && wrangler --version && git --version
+
+# 官方镜像默认以 `runner` 用户运行 job，切回避免 root 运行污染
+USER runner

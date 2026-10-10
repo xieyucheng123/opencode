@@ -1,0 +1,33 @@
+name: test-runner
+
+# runner 镜像回归：验证 guard/oci 两个失败 job 的真实入口命令（不碰 secrets，只验存在+版本）。
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "待测镜像 tag（空则用 stable）"
+        required: false
+        default: "stable"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/xieyucheng123/gh-runner:${{ inputs.image != '' && inputs.image || 'stable' }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: guard 依赖（sync-r2.yml 真实调用）
+        run: |
+          python3 -c "import json;json.load(open('/dev/null'));print('py unreachable')" 2>/dev/null || python3 -c "import json; print('python3 ok')"
+          wrangler --version
+
+      - name: oci 依赖（rotate-egress.yml / retry-arm.yml 真实调用）
+        run: |
+          pip --version
+          pip3 --version
+          python3 --version
+          oci --version
+          git --version
+          bash --version | head -1

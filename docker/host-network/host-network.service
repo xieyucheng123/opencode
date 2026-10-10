@@ -1,0 +1,12 @@
+[Unit]
+Description=hw21 host network restore (MASQUERADE + pref-500 direct rules)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/restore-host-network.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
