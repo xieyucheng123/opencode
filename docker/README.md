@@ -50,3 +50,16 @@ docker compose restart
 ## 跟版
 
 改 `compose.yml` 里 `image:` 的 digest 一行并提交，`docker compose pull && docker compose up -d`。`stable` 标签只在验证后手动前移（标记作用）。
+
+
+## 生产事故 2026-10-09：runner 黑户工具
+
+- 现象：guard-rules 的 Sync 用新容器跑出 wrangler command not found；此前 3 次成功。oci 的 job 缺 pip。
+- 根因：旧 runner 容器用官方 stock 镜像，有人 docker exec 进容器手工装了 wrangler——没进 Dockerfile、没进流水线。迁移删容器时工具一起陪葬；pip 则是 stock 镜像本来就没有。
+
+## 铁律：环境变更必须进镜像流水线
+
+1. 禁止 docker exec 进运行容器装软件/改配置来修问题——当时能跑，删容器即复发，其他机器永远复现不了。
+2. 运行环境的一切变更（加 CLI、改配置、装依赖）必须写进 Dockerfile，经 CI 构建 → digest pin → test 回归 → stable 封版，与 opencode-tools 同流程。
+3. 新机器只用 仓库 compose + 镜像 digest + .env 启动，不接受任何手工前置步骤。
+4. 删容器前默认假设里面可能有黑户：先查历史 job 日志确认工具链，重建后跑回归验证再交工。
