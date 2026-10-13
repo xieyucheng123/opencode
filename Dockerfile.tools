@@ -116,10 +116,11 @@ RUN npm install -g "agent-browser@${AGENT_BROWSER_VERSION}" \
   && agent-browser --version
 
 # 非涉密默认配置烘入镜像（各机器行为一致；密钥仍走 env/挂载，不进镜像）：
-# - opencode.jsonc：默认模型走 LiteLLM 网关，地址/key 由 {env:} 注入
-# - AGENTS.md：agent 使用说明（直连模型通用版）
+# - opencode.jsonc：默认模型走 LiteLLM 网关，地址/key 由 {env:} 注入；plugins pin 死 opencode-mem（L2 向量记忆）
+# - opencode-mem.jsonc：记忆插件配置（storagePath 钉在 prod-data 卷，密钥全走 env://）
+# - AGENTS.md：agent 使用说明（直连模型通用版，含记忆系统规约）
 # 注意：部署侧不要再挂载这两个文件，否则会盖住烘入的版本。
-COPY docker/opencode.jsonc docker/AGENTS.md /root/.config/opencode/
+COPY docker/opencode.jsonc docker/opencode-mem.jsonc docker/AGENTS.md /root/.config/opencode/
 # - send-mail：msmtp 薄包装（配置全走 SMTP_* 环境变量，见 docker/send-mail.sh）
 COPY docker/send-mail.sh /usr/local/bin/send-mail
 RUN chmod +x /usr/local/bin/send-mail && msmtp --version && send-mail --help >/dev/null

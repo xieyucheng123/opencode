@@ -18,6 +18,9 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "4097:4097"
+      # opencode-mem Web UI（L2 向量记忆查看面板）：只绑宿主机回环调试用，不暴露 LAN；
+      # 容器内地址仍是 http://127.0.0.1:4747（插件 webServerHost 保持 127.0.0.1）。
+      - "127.0.0.1:4747:4747"
     env_file:
       - .env
     volumes:

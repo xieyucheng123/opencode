@@ -105,6 +105,15 @@ Lightpanda（36k stars，2026-10-02 发 1.0.0，Zig、无渲染、兼容 CDP）�
 无持久登录（`--profile` / `--state` 不支持），跟 AGENTS.md 工作流对不上；且 AGPL-3.0。
 结论：chrome-cjk sidecar 继续当主力；以后如需批量只读加速再试点（换 `BROWSER_IMAGE` 一行即可）。
 
+## 上线记录：记忆系统 L1+L2（2026-10-13）
+
+- 改动分支：`memory-system`（`feat(docker): 记忆系统 L1 文件 + L2 opencode-mem`）。设计见仓库 Discussions #11。
+- 改动面：`docker/opencode.jsonc` 加 `plugins: ["opencode-mem@<pin>"]`；新增 `docker/opencode-mem.jsonc`（`storagePath` 钉 `prod-data` 卷，密钥全 `env://`，`autoUpdate: false`）；`Dockerfile.tools` 的 `COPY` 行加它；`docker/AGENTS.md` 加记忆规约；`compose.yml` 加 `127.0.0.1:4747:4747` 回环映射（Web UI 调试用）。
+- 附带收敛：线上镜像的 AGENTS.md 含 url2hc 铁律 + 默认邮箱两处内容，仓库任何分支都没有（镜像用部署机未提交内容打出，已属漂移）。本分支已把这两处收进 `docker/AGENTS.md`，仓库重回唯一真相源。
+- 构建：`tools-image` 流水线（与 `browser-sidecar` 同流程，run 38262363507 那套）→ digest pin → test 回归 → `stable` 前移。
+- 部署检查单（`.env` 无新增 key；网关暂无 embedding 模型故 L2 默认本地 embedding）：`compose pull && up -d` → 首启观察日志（npm 下插件 + HF 下约 500MB embedding 模型，只一次，缓存进 `prod-data` 卷）→ `memory({mode:"add",content:"连通测试"})` + `search` roundtrip → 宿主机 `curl http://127.0.0.1:4747/` → `restart` 后记忆仍在 → 备份 tgz 含 `opencode-mem/` → digest pin + `stable` 前移。
+- 后续：网关加上 embedding 模型后，按 `opencode-mem.jsonc` 内注释切远端并做 re-embed 迁移；备份/恢复流程不变（`prod-data` 已覆盖）。
+
 ## 跟版
 
 改 `compose.yml` 里 `image:` 的 digest 一行并提交，`docker compose pull && docker compose up -d`。`stable` 标签只在验证后手动前移（标记作用）。

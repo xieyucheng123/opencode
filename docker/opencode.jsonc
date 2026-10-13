@@ -2,6 +2,9 @@
   "$schema": "https://opencode.ai/config.json",
   "permission": "allow",
   "model": "opencode-go/muse-spark-1.3-contributor",
+  // 常态记忆 L2：opencode-mem 本地向量插件（pin 死版本，autoUpdate 在 opencode-mem.jsonc 里关）。
+  // 首次启动自动从 npm 下载；版本前移只走 digest pin 流程，不接受 floating。
+  "plugins": ["opencode-mem@2.31.1"],
   "provider": {
     "opencode-go": {
       "options": {
