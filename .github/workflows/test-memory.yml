@@ -42,11 +42,14 @@ jobs:
           python3 - <<'EOF'
           import json, yaml
           gw = {"model_name": "test-chat",
-                "litellm_params": {"model": "ollama/qwen3:0.6b",
-                                   "api_base": "http://127.0.0.1:11434", "timeout": 180}}
+                "litellm_params": {"model": "ollama/qwen3:8b",
+                                   "api_base": "http://127.0.0.1:11434", "timeout": 300}}
+          emb = {"model_name": "nomic-embed-text",
+                 "litellm_params": {"model": "ollama/nomic-embed-text",
+                                    "api_base": "http://127.0.0.1:11434", "timeout": 120}}
           cfg = {"general_settings": {"drop_params": True},
                  "litellm_settings": {"request_timeout": 180, "num_retries": 0, "drop_params": True},
-                 "model_list": [gw]}
+                 "model_list": [gw, emb]}
           open('/tmp/litellm-memtest.yaml', 'w').write(yaml.safe_dump(cfg))
           # opencode-mem 配置：沿用本分支 docker/opencode-mem.jsonc 的键位，只改存储与远端指向
           print("gateway config render OK")
@@ -88,7 +91,9 @@ jobs:
           done
           curl -s --max-time 10 http://127.0.0.1:4001/v1/embeddings \
             -H "Authorization: Bearer test-only" -H "Content-Type: application/json" \
-            -d '{"model":"nomic-embed-text","input":"probe"}' | head -c 120; echo
+            -d '{"model":"nomic-embed-text","input":"probe"}' | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); assert len(d['data'][0]['embedding'])==768, d; print('gateway embeddings OK (768)')" || \
+            (echo "FAIL: 测试网关 embeddings 不通"; exit 1)
 
       - name: Install opencode + serve (常驻，和生产同构；one-shot run 等不及插件初始化)
         run: |
@@ -102,8 +107,8 @@ jobs:
             curl -sf --max-time 5 http://127.0.0.1:4747/api/health >/dev/null 2>&1 && break
             sleep 15
           done
-          curl -s --max-time 15 http://127.0.0.1:4747/api/health; echo
-          curl -s --max-time 15 http://127.0.0.1:4747/api/stats | head -c 300; echo
+          curl -s --max-time 15 http://127.0.0.1:4747/api/health || true; echo
+          curl -s --max-time 15 http://127.0.0.1:4747/api/stats | head -c 300 || true; echo
           echo "--- serve.log tail:"; tail -30 /tmp/serve.log
           echo "--- serve proc:"; pgrep -af "opencode serve" | head -3 || echo "serve NOT running"
           ls /tmp/ochome/opencode-mem/ 2>/dev/null | head -6 || echo "(storage dir yet empty)"
