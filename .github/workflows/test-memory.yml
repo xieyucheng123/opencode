@@ -95,47 +95,62 @@ jobs:
             python3 -c "import json,sys; d=json.load(sys.stdin); assert len(d['data'][0]['embedding'])==768, d; print('gateway embeddings OK (768)')" || \
             (echo "FAIL: 测试网关 embeddings 不通"; exit 1)
 
-      - name: Install opencode
+      # 生产同版本家族的 anomalyco 官方镜像跑 serve（stock 1.x 插件机制对不上，无参考价值）。
+      # docker 容器跨 step 存活。会话经 docker exec + --server 连入。
+      - name: Serve (anomalyco 2.0.x) + sessions + asserts
         run: |
-          curl -fsSL https://opencode.ai/install | bash
-          export PATH="$HOME/.opencode/bin:$PATH"
-          opencode --version
-
-      # 注意：serve 必须和会话断言在同一个 step（runner 跨 step 收割裸后台进程，
-      # docker 容器不受影响）。stock 1.x 只认 plugin（单数）；生产 v2 用 plugins，
-      # 测的是同一插件包的记忆 core。
-      - name: Serve + sessions (起服→等插件→三会话→断言，同进程树)
-        run: |
-          export PATH="$HOME/.opencode/bin:$PATH"
-          export HOME=/tmp/ochome
-          nohup opencode serve --port 4096 --hostname 127.0.0.1 > /tmp/serve.log 2>&1 &
-          SERVEPID=$!
-          echo "serve pid=$SERVEPID, waiting for plugin (npm 拉取 + Turso 初始化要几分钟)"
+          mkdir -p /tmp/oc-cfg /tmp/ochome-mem
+          cat > /tmp/oc-cfg/opencode.json <<'EOF'
+          {"$schema": "https://opencode.ai/config.json",
+           "permission": "allow",
+           "model": "gw/test-chat",
+           "provider": {"gw": {"options": {
+             "baseURL": "http://127.0.0.1:4001/v1",
+             "apiKey": "test-only"}}},
+           "plugins": ["opencode-mem@2.31.1"]}
+          EOF
+          cat > /tmp/oc-cfg/opencode-mem.jsonc <<'EOF'
+          {"storagePath": "/memdata",
+           "embeddingModel": "nomic-embed-text",
+           "embeddingApiUrl": "http://127.0.0.1:4001/v1",
+           "embeddingApiKey": "test-only",
+           "embeddingDimensions": 768,
+           "webServerEnabled": true, "webServerPort": 4747, "webServerHost": "127.0.0.1",
+           "autoCaptureEnabled": false,
+           "chatMessage": {"enabled": true, "maxMemories": 3, "injectOn": "first"},
+           "autoUpdate": false,
+           "showAutoCaptureToasts": false, "showUserProfileToasts": false, "showErrorToasts": false}
+          EOF
+          docker run -d --name oc-memtest --network host \
+            -v /tmp/oc-cfg:/root/.config/opencode:ro \
+            -v /tmp/ochome-mem:/memdata \
+            ghcr.io/anomalyco/opencode:2.0.28 serve --port 4096 --hostname 127.0.0.1
+          echo "waiting for plugin (npm 拉取 + Turso 初始化要几分钟)"
           for i in $(seq 1 20); do
             curl -sf --max-time 5 http://127.0.0.1:4747/api/health >/dev/null 2>&1 && break
             sleep 15
           done
           curl -sf --max-time 15 http://127.0.0.1:4747/api/health >/dev/null || \
-            (echo "FAIL: 插件 5 分钟未起"; tail -30 /tmp/serve.log; kill $SERVEPID; exit 1)
-          echo "OK: plugin live"; ls /tmp/ochome/opencode-mem/ | head -4
-          SRV="--server http://127.0.0.1:4096"
-          timeout 280 opencode run $SRV \
+            (echo "FAIL: 插件 5 分钟未起"; docker logs oc-memtest --tail 30; exit 1)
+          echo "OK: plugin live"; ls /tmp/ochome-mem/ | head -4
+          OEX="docker exec oc-memtest opencode run --server http://127.0.0.1:4096"
+          timeout 280 $OEX \
             "reply with exactly: MEM-OK" > /tmp/mem-out.txt 2>&1; tail -4 /tmp/mem-out.txt
           grep -q "MEM-OK" /tmp/mem-out.txt && echo "OK: client closure" || \
-            (echo "FAIL: 客户端不通"; kill $SERVEPID; exit 1)
-          timeout 280 opencode run $SRV \
+            (echo "FAIL: 客户端不通"; exit 1)
+          timeout 280 $OEX \
             "Call the memory tool with mode 'add' and content 'sky test word is CERULEAN-7'. Reply with exactly: STORED" \
             > /tmp/mem-a.txt 2>&1; tail -8 /tmp/mem-a.txt
           grep -q "STORED" /tmp/mem-a.txt || \
-            (echo "FAIL: 会话 A 未存下"; kill $SERVEPID; exit 1)
+            (echo "FAIL: 会话 A 未存下"; exit 1)
           curl -s --max-time 60 "http://127.0.0.1:4747/api/search?q=sky%20test%20word" \
             | grep -q "CERULEAN-7" && echo "OK: api search recall" || \
-            (echo "FAIL: API 未检回记忆"; kill $SERVEPID; exit 1)
-          timeout 280 opencode run $SRV \
+            (echo "FAIL: API 未检回记忆"; exit 1)
+          timeout 280 $OEX \
             "Call the memory tool with mode 'search' and query 'sky test word'. Print the full results verbatim." \
             > /tmp/mem-b.txt 2>&1; tail -8 /tmp/mem-b.txt
           grep -q "CERULEAN-7" /tmp/mem-b.txt && echo "OK: cross-session recall" || \
-            (echo "FAIL: 跨会话未召回"; kill $SERVEPID; exit 1)
-          test -n "$(ls /tmp/ochome/opencode-mem/*.db 2>/dev/null)" && echo "OK: shards persisted" || \
-            (echo "FAIL: 无 shard 文件"; kill $SERVEPID; exit 1)
-          kill $SERVEPID; echo "ALL GREEN"
+            (echo "FAIL: 跨会话未召回"; exit 1)
+          test -n "$(ls /tmp/ochome-mem/*.db 2>/dev/null)" && echo "OK: shards persisted" || \
+            (echo "FAIL: 无 shard 文件"; exit 1)
+          docker rm -f oc-memtest >/dev/null; echo "ALL GREEN"
