@@ -90,32 +90,35 @@ jobs:
             -H "Authorization: Bearer test-only" -H "Content-Type: application/json" \
             -d '{"model":"nomic-embed-text","input":"probe"}' | head -c 120; echo
 
-      - name: Install opencode + boot with plugin (client closure)
+      - name: Install opencode + serve (常驻，和生产同构；one-shot run 等不及插件初始化)
         run: |
           curl -fsSL https://opencode.ai/install | bash
           export PATH="$HOME/.opencode/bin:$PATH"
           export HOME=/tmp/ochome
           # stock 1.x 只认 plugin（单数）；生产 v2 用 plugins。测的是同一插件包的记忆 core。
-          timeout 280 opencode run \
-            "reply with exactly: MEM-OK" 2>&1 | tail -3 | tee /tmp/mem-out.txt
-          grep -q "MEM-OK" /tmp/mem-out.txt && echo "OK: opencode boots with opencode-mem"
-
-      - name: Plugin liveness gate (4747 + shards)
-        run: |
-          for i in $(seq 1 12); do
+          nohup opencode serve --port 4096 --hostname 127.0.0.1 > /tmp/serve.log 2>&1 &
+          echo "serve started, waiting for plugin (npm 拉取 + Turso 初始化要几分钟)"
+          for i in $(seq 1 20); do
             curl -sf --max-time 5 http://127.0.0.1:4747/api/health >/dev/null 2>&1 && break
-            sleep 5
+            sleep 15
           done
           curl -s --max-time 15 http://127.0.0.1:4747/api/health; echo
           curl -s --max-time 15 http://127.0.0.1:4747/api/stats | head -c 300; echo
           ls /tmp/ochome/opencode-mem/ 2>/dev/null | head -6 || echo "(storage dir yet empty)"
+          grep -qiE "opencode-mem|memory" /tmp/serve.log | head -3 || true
 
       - name: Cross-session recall (agent 调 memory tool，经网关远端 embeddings)
         run: |
           export PATH="$HOME/.opencode/bin:$PATH"
           export HOME=/tmp/ochome
+          SRV="--server http://127.0.0.1:4096"
+          # 会话 0：客户端闭环（serve 通 + 模型通）
+          timeout 280 opencode run $SRV \
+            "reply with exactly: MEM-OK" > /tmp/mem-out.txt 2>&1; tail -4 /tmp/mem-out.txt
+          grep -q "MEM-OK" /tmp/mem-out.txt && echo "OK: client closure" || \
+            (echo "FAIL: 客户端不通"; exit 1)
           # 会话 A：显式调 memory tool 存一条（store→embeddings→gateway→ollama 全链）
-          timeout 280 opencode run \
+          timeout 280 opencode run $SRV \
             "Call the memory tool with mode 'add' and content 'sky test word is CERULEAN-7'. Reply with exactly: STORED" \
             > /tmp/mem-a.txt 2>&1; tail -8 /tmp/mem-a.txt
           grep -q "STORED" /tmp/mem-a.txt || (echo "FAIL: 会话 A 未存下"; exit 1)
@@ -123,8 +126,8 @@ jobs:
           curl -s --max-time 60 "http://127.0.0.1:4747/api/search?q=sky%20test%20word" \
             | grep -q "CERULEAN-7" && echo "OK: api search recall" || \
             (echo "FAIL: API 未检回记忆"; exit 1)
-          # 会话 B（全新 session）：调 memory tool 搜并原文输出（跨会话召回＝本功能本体）
-          timeout 280 opencode run \
+          # 会话 B（全新 session，同 serve 不同会话）：调 memory tool 搜并原文输出（跨会话召回＝本功能本体）
+          timeout 280 opencode run $SRV \
             "Call the memory tool with mode 'search' and query 'sky test word'. Print the full results verbatim." \
             > /tmp/mem-b.txt 2>&1; tail -8 /tmp/mem-b.txt
           grep -q "CERULEAN-7" /tmp/mem-b.txt && echo "OK: cross-session recall" || \
