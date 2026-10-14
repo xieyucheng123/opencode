@@ -100,6 +100,16 @@ jobs:
             "reply with exactly: MEM-OK" 2>&1 | tail -3 | tee /tmp/mem-out.txt
           grep -q "MEM-OK" /tmp/mem-out.txt && echo "OK: opencode boots with opencode-mem"
 
+      - name: Plugin liveness gate (4747 + shards)
+        run: |
+          for i in $(seq 1 12); do
+            curl -sf --max-time 5 http://127.0.0.1:4747/api/health >/dev/null 2>&1 && break
+            sleep 5
+          done
+          curl -s --max-time 15 http://127.0.0.1:4747/api/health; echo
+          curl -s --max-time 15 http://127.0.0.1:4747/api/stats | head -c 300; echo
+          ls /tmp/ochome/opencode-mem/ 2>/dev/null | head -6 || echo "(storage dir yet empty)"
+
       - name: Cross-session recall (agent 调 memory tool，经网关远端 embeddings)
         run: |
           export PATH="$HOME/.opencode/bin:$PATH"
@@ -107,7 +117,7 @@ jobs:
           # 会话 A：显式调 memory tool 存一条（store→embeddings→gateway→ollama 全链）
           timeout 280 opencode run \
             "Call the memory tool with mode 'add' and content 'sky test word is CERULEAN-7'. Reply with exactly: STORED" \
-            2>&1 | tail -3 | tee /tmp/mem-a.txt
+            > /tmp/mem-a.txt 2>&1; tail -8 /tmp/mem-a.txt
           grep -q "STORED" /tmp/mem-a.txt || (echo "FAIL: 会话 A 未存下"; exit 1)
           # 确定性旁证：插件 API 检索命中（不依赖 agent 转述）
           curl -s --max-time 60 "http://127.0.0.1:4747/api/search?q=sky%20test%20word" \
@@ -116,7 +126,7 @@ jobs:
           # 会话 B（全新 session）：调 memory tool 搜并原文输出（跨会话召回＝本功能本体）
           timeout 280 opencode run \
             "Call the memory tool with mode 'search' and query 'sky test word'. Print the full results verbatim." \
-            2>&1 | tail -6 | tee /tmp/mem-b.txt
+            > /tmp/mem-b.txt 2>&1; tail -8 /tmp/mem-b.txt
           grep -q "CERULEAN-7" /tmp/mem-b.txt && echo "OK: cross-session recall" || \
             (echo "FAIL: 跨会话未召回"; exit 1)
 
