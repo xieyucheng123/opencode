@@ -121,6 +121,11 @@ RUN npm install -g "agent-browser@${AGENT_BROWSER_VERSION}" \
 # - AGENTS.md：agent 使用说明（直连模型通用版，含记忆系统规约）
 # 注意：部署侧不要再挂载这两个文件，否则会盖住烘入的版本。
 COPY docker/opencode.jsonc docker/opencode-mem.jsonc docker/AGENTS.md /root/.config/opencode/
+# opencode-mem 插件烘入镜像（L2 向量记忆）：配 `plugins` 只声明，不断网，
+# 必须 `opencode plugin add` 安装（约 600MB npm 包：onnxruntime/turso natives）。
+# 构建机一次下载、运行免下；pin 死版本与 opencode.jsonc 一致；autoUpdate 关。
+# 注意：不要改成 entrypoint 里装——每次重建容器都重下 600MB，且删容器即失忆风险。
+RUN opencode plugin add opencode-mem@2.31.1
 # - send-mail：msmtp 薄包装（配置全走 SMTP_* 环境变量，见 docker/send-mail.sh）
 COPY docker/send-mail.sh /usr/local/bin/send-mail
 RUN chmod +x /usr/local/bin/send-mail && msmtp --version && send-mail --help >/dev/null
