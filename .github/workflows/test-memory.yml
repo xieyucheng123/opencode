@@ -100,7 +100,7 @@ jobs:
       - name: Serve (anomalyco 2.0.x) + sessions + asserts
         run: |
           mkdir -p /tmp/oc-cfg /tmp/ochome-mem
-          cat > /tmp/oc-cfg/opencode.json <<'EOF'
+          cat > /tmp/oc-cfg/opencode.jsonc <<'EOF'
           {"$schema": "https://opencode.ai/config.json",
            "permission": "allow",
            "model": "gw/test-chat",
