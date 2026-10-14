@@ -107,19 +107,25 @@ jobs:
             -v /tmp/ochome-mem:/memdata \
             -e OPENCODE_SERVER_PASSWORD=test-srv-pw \
             ghcr.io/xieyucheng123/opencode-tools:latest serve --port 4096 --hostname 127.0.0.1
-          echo "waiting for plugin"
-          for i in $(seq 1 20); do
+          echo "waiting for plugin (先给 2 分钟自然启动；不起就建会话促懒加载）"
+          for i in $(seq 1 8); do
             curl -sf --max-time 5 http://127.0.0.1:4747/api/health >/dev/null 2>&1 && break
             sleep 15
           done
-          curl -sf --max-time 15 http://127.0.0.1:4747/api/health >/dev/null || \
-            (echo "FAIL: 插件 5 分钟未起"; docker logs oc-memtest --tail 30; exit 1)
-          echo "OK: plugin live"; ls /tmp/ochome-mem/ | head -4
           OEX="docker exec -e OPENCODE_PASSWORD=test-srv-pw oc-memtest opencode run --server http://127.0.0.1:4096"
           timeout 280 $OEX \
             "reply with exactly: MEM-OK" > /tmp/mem-out.txt 2>&1; tail -4 /tmp/mem-out.txt
           grep -q "MEM-OK" /tmp/mem-out.txt && echo "OK: client closure" || \
-            (echo "FAIL: 客户端不通"; exit 1)
+            (echo "FAIL: 客户端不通"; docker logs oc-memtest --tail 20; exit 1)
+          echo "--- 会话已建，再等插件 3 分钟（懒加载窗口）:"
+          for i in $(seq 1 12); do
+            curl -sf --max-time 5 http://127.0.0.1:4747/api/health >/dev/null 2>&1 && break
+            sleep 15
+          done
+          curl -sf --max-time 15 http://127.0.0.1:4747/api/health >/dev/null || \
+            (echo "FAIL: 插件未起（含懒加载窗口）"; docker logs oc-memtest --tail 30; \
+             docker exec oc-memtest ls /root/.cache/opencode/npm/ 2>&1 | head -4; \
+             docker exec oc-memtest ls /root/.local/share/opencode/ 2>/dev/null | head -8; exit 1)
           timeout 280 $OEX \
             "Call the memory tool with mode 'add' and content 'sky test word is CERULEAN-7'. Reply with exactly: STORED" \
             > /tmp/mem-a.txt 2>&1; tail -8 /tmp/mem-a.txt
