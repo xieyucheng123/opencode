@@ -14,16 +14,15 @@
 
   // Embedding：本地默认 Xenova/nomic-embed-text-v1（768 维，多语言）。
   // 首启从 HuggingFace 下约 500MB 模型，缓存进 {storagePath}/.cache（在卷上，只下一次）。
-  "embeddingModel": "Xenova/nomic-embed-text-v1",
+  // Embedding：远端（网关 Ollama nomic-embed-text，768 维）。本地块留作回退。
+  // "embeddingModel": "Xenova/nomic-embed-text-v1",
 
-  // 远端 embedding（待网关加上 embedding 模型后切换，可省本地约 1GB 内存并消掉 HF 依赖）：
-  // 1. 网关侧加一个 embedding 模型（如 text-embedding-3-small 兼容）；
-  // 2. 取消下面三行注释，并把本地 embeddingModel 一行注释掉；
-  // 3. 经 Web UI 做一次 re-embed 迁移（先建临时 shard 全量重嵌、验行数再替换，不断档）。
+  // 远端 embedding（网关 Ollama 已 live，见 Discussions #11；切回本地时注释掉下面四行即可）：
   // 注意 bridge 下容器 localhost 不是宿主机，必须写 host.docker.internal，不能写 127.0.0.1。
-  // "embeddingApiUrl": "http://host.docker.internal:4000/v1",
-  // "embeddingApiKey": "env://LITELLM_API_KEY",
-  // "embeddingModel": "<网关上的 embedding 模型名>",
+  "embeddingApiUrl": "http://host.docker.internal:4000/v1",
+  "embeddingApiKey": "env://LITELLM_API_KEY",
+  "embeddingModel": "nomic-embed-text",
+  "embeddingDimensions": 768,
 
   // Web UI：只绑容器回环，宿主机经 compose 的 127.0.0.1:4747:4747 映射调试，不暴露 LAN。
   // 绑 0.0.0.0 之前必须先配 webServerApiToken。
