@@ -116,8 +116,12 @@ jobs:
 
       - name: Cross-session recall (agent 调 memory tool，经网关远端 embeddings)
         run: |
+          set -x
           export PATH="$HOME/.opencode/bin:$PATH"
           export HOME=/tmp/ochome
+          which opencode; opencode --version
+          echo "--- serve root:"; curl -s --max-time 10 http://127.0.0.1:4096/ | head -c 200; echo
+          echo "--- plugin api:"; curl -s --max-time 10 http://127.0.0.1:4747/api/health; echo
           SRV="--server http://127.0.0.1:4096"
           # 会话 0：客户端闭环（serve 通 + 模型通）
           timeout 280 opencode run $SRV \
