@@ -54,17 +54,19 @@ jobs:
           # opencode-mem 配置：沿用本分支 docker/opencode-mem.jsonc 的键位，只改存储与远端指向
           print("gateway config render OK")
           EOF
-          mkdir -p /tmp/ochome/.config/opencode
-          cat > /tmp/ochome/.config/opencode/opencode.json <<'EOF'
+          mkdir -p /tmp/oc-cfg-test /tmp/ochome-mem
+          # 测试覆盖配置（v2 全量形态，挂载盖住烘焙版；只改指向，不改键位）：
+          cat > /tmp/oc-cfg-test/opencode.jsonc <<'EOF'
           {"$schema": "https://opencode.ai/config.json",
            "permission": "allow",
            "model": "gw/test-chat",
            "provider": {"gw": {"options": {
              "baseURL": "http://127.0.0.1:4001/v1",
              "apiKey": "test-only"}}},
-           "plugin": ["opencode-mem@2.31.1"]}          EOF
-          cat > /tmp/ochome/.config/opencode/opencode-mem.jsonc <<'EOF'
-          {"storagePath": "/tmp/ochome/opencode-mem",
+           "plugins": ["opencode-mem@2.31.1"]}
+          EOF
+          cat > /tmp/oc-cfg-test/opencode-mem.jsonc <<'EOF'
+          {"storagePath": "/memdata",
            "embeddingModel": "nomic-embed-text",
            "embeddingApiUrl": "http://127.0.0.1:4001/v1",
            "embeddingApiKey": "test-only",
@@ -75,7 +77,7 @@ jobs:
            "autoUpdate": false,
            "showAutoCaptureToasts": false, "showUserProfileToasts": false, "showErrorToasts": false}
           EOF
-          echo "opencode configs render OK"
+          echo "opencode test-override configs render OK"
 
       - name: Start litellm (test gateway, embeddings+chat 经 ollama)
         run: |
@@ -95,42 +97,17 @@ jobs:
             python3 -c "import json,sys; d=json.load(sys.stdin); assert len(d['data'][0]['embedding'])==768, d; print('gateway embeddings OK (768)')" || \
             (echo "FAIL: 测试网关 embeddings 不通"; exit 1)
 
-      # 生产同版本家族的 anomalyco 官方镜像跑 serve（stock 1.x 插件机制对不上，无参考价值）。
-      # docker 容器跨 step 存活。会话经 docker exec + --server 连入。
-      - name: Serve (anomalyco 2.0.x) + sessions + asserts
+      # 被测物：本分支刚打出来的成品镜像（插件已烘入，无需 plugin add）。
+      # 测试覆盖配置挂载盖住烘焙版（只改指向，不改键位）；会话经 docker exec 连入。
+      - name: Serve (成品镜像) + sessions + asserts
         run: |
-          mkdir -p /tmp/oc-cfg /tmp/ochome-mem
-          cat > /tmp/oc-cfg/opencode.jsonc <<'EOF'
-          {"$schema": "https://opencode.ai/config.json",
-           "permission": "allow",
-           "model": "gw/test-chat",
-           "provider": {"gw": {"options": {
-             "baseURL": "http://127.0.0.1:4001/v1",
-             "apiKey": "test-only"}}},
-           "plugins": ["opencode-mem@2.31.1"]}
-          EOF
-          cat > /tmp/oc-cfg/opencode-mem.jsonc <<'EOF'
-          {"storagePath": "/memdata",
-           "embeddingModel": "nomic-embed-text",
-           "embeddingApiUrl": "http://127.0.0.1:4001/v1",
-           "embeddingApiKey": "test-only",
-           "embeddingDimensions": 768,
-           "webServerEnabled": true, "webServerPort": 4747, "webServerHost": "127.0.0.1",
-           "autoCaptureEnabled": false,
-           "chatMessage": {"enabled": true, "maxMemories": 3, "injectOn": "first"},
-           "autoUpdate": false,
-           "showAutoCaptureToasts": false, "showUserProfileToasts": false, "showErrorToasts": false}
-          EOF
-          # 关键发现（本地实证）：光写 plugins 配置不断网，插件必须经
-          # `opencode plugin add` 安装。容器先 sleep，由 exec 完成装→起服全流程。
           docker run -d --name oc-memtest --network host \
-            -v /tmp/oc-cfg:/root/.config/opencode:ro \
+            -v /tmp/oc-cfg-test/opencode.jsonc:/root/.config/opencode/opencode.jsonc:ro \
+            -v /tmp/oc-cfg-test/opencode-mem.jsonc:/root/.config/opencode/opencode-mem.jsonc:ro \
             -v /tmp/ochome-mem:/memdata \
             -e OPENCODE_SERVER_PASSWORD=test-srv-pw \
-            ghcr.io/anomalyco/opencode:2.0.28 sleep infinity
-          docker exec oc-memtest opencode plugin add opencode-mem@2.31.1
-          docker exec -d oc-memtest opencode serve --port 4096 --hostname 127.0.0.1
-          echo "waiting for plugin (Turso 初始化要几分钟)"
+            ghcr.io/xieyucheng123/opencode-tools:latest serve --port 4096 --hostname 127.0.0.1
+          echo "waiting for plugin"
           for i in $(seq 1 20); do
             curl -sf --max-time 5 http://127.0.0.1:4747/api/health >/dev/null 2>&1 && break
             sleep 15
