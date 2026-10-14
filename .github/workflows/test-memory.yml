@@ -95,57 +95,47 @@ jobs:
             python3 -c "import json,sys; d=json.load(sys.stdin); assert len(d['data'][0]['embedding'])==768, d; print('gateway embeddings OK (768)')" || \
             (echo "FAIL: 测试网关 embeddings 不通"; exit 1)
 
-      - name: Install opencode + serve (常驻，和生产同构；one-shot run 等不及插件初始化)
+      - name: Install opencode
         run: |
           curl -fsSL https://opencode.ai/install | bash
           export PATH="$HOME/.opencode/bin:$PATH"
+          opencode --version
+
+      # 注意：serve 必须和会话断言在同一个 step（runner 跨 step 收割裸后台进程，
+      # docker 容器不受影响）。stock 1.x 只认 plugin（单数）；生产 v2 用 plugins，
+      # 测的是同一插件包的记忆 core。
+      - name: Serve + sessions (起服→等插件→三会话→断言，同进程树)
+        run: |
+          export PATH="$HOME/.opencode/bin:$PATH"
           export HOME=/tmp/ochome
-          # stock 1.x 只认 plugin（单数）；生产 v2 用 plugins。测的是同一插件包的记忆 core。
           nohup opencode serve --port 4096 --hostname 127.0.0.1 > /tmp/serve.log 2>&1 &
-          echo "serve started, waiting for plugin (npm 拉取 + Turso 初始化要几分钟)"
+          SERVEPID=$!
+          echo "serve pid=$SERVEPID, waiting for plugin (npm 拉取 + Turso 初始化要几分钟)"
           for i in $(seq 1 20); do
             curl -sf --max-time 5 http://127.0.0.1:4747/api/health >/dev/null 2>&1 && break
             sleep 15
           done
-          curl -s --max-time 15 http://127.0.0.1:4747/api/health || true; echo
-          curl -s --max-time 15 http://127.0.0.1:4747/api/stats | head -c 300 || true; echo
-          echo "--- serve.log tail:"; tail -30 /tmp/serve.log
-          echo "--- serve proc:"; pgrep -af "opencode serve" | head -3 || echo "serve NOT running"
-          ls /tmp/ochome/opencode-mem/ 2>/dev/null | head -6 || echo "(storage dir yet empty)"
-          grep -qiE "opencode-mem|memory" /tmp/serve.log | head -3 || true
-
-      - name: Cross-session recall (agent 调 memory tool，经网关远端 embeddings)
-        run: |
-          set -x
-          export PATH="$HOME/.opencode/bin:$PATH"
-          export HOME=/tmp/ochome
-          which opencode; opencode --version
-          echo "--- serve root:"; curl -s --max-time 10 http://127.0.0.1:4096/ | head -c 200; echo
-          echo "--- plugin api:"; curl -s --max-time 10 http://127.0.0.1:4747/api/health; echo
+          curl -sf --max-time 15 http://127.0.0.1:4747/api/health >/dev/null || \
+            (echo "FAIL: 插件 5 分钟未起"; tail -30 /tmp/serve.log; kill $SERVEPID; exit 1)
+          echo "OK: plugin live"; ls /tmp/ochome/opencode-mem/ | head -4
           SRV="--server http://127.0.0.1:4096"
-          # 会话 0：客户端闭环（serve 通 + 模型通）
           timeout 280 opencode run $SRV \
             "reply with exactly: MEM-OK" > /tmp/mem-out.txt 2>&1; tail -4 /tmp/mem-out.txt
           grep -q "MEM-OK" /tmp/mem-out.txt && echo "OK: client closure" || \
-            (echo "FAIL: 客户端不通"; exit 1)
-          # 会话 A：显式调 memory tool 存一条（store→embeddings→gateway→ollama 全链）
+            (echo "FAIL: 客户端不通"; kill $SERVEPID; exit 1)
           timeout 280 opencode run $SRV \
             "Call the memory tool with mode 'add' and content 'sky test word is CERULEAN-7'. Reply with exactly: STORED" \
             > /tmp/mem-a.txt 2>&1; tail -8 /tmp/mem-a.txt
-          grep -q "STORED" /tmp/mem-a.txt || (echo "FAIL: 会话 A 未存下"; exit 1)
-          # 确定性旁证：插件 API 检索命中（不依赖 agent 转述）
+          grep -q "STORED" /tmp/mem-a.txt || \
+            (echo "FAIL: 会话 A 未存下"; kill $SERVEPID; exit 1)
           curl -s --max-time 60 "http://127.0.0.1:4747/api/search?q=sky%20test%20word" \
             | grep -q "CERULEAN-7" && echo "OK: api search recall" || \
-            (echo "FAIL: API 未检回记忆"; exit 1)
-          # 会话 B（全新 session，同 serve 不同会话）：调 memory tool 搜并原文输出（跨会话召回＝本功能本体）
+            (echo "FAIL: API 未检回记忆"; kill $SERVEPID; exit 1)
           timeout 280 opencode run $SRV \
             "Call the memory tool with mode 'search' and query 'sky test word'. Print the full results verbatim." \
             > /tmp/mem-b.txt 2>&1; tail -8 /tmp/mem-b.txt
           grep -q "CERULEAN-7" /tmp/mem-b.txt && echo "OK: cross-session recall" || \
-            (echo "FAIL: 跨会话未召回"; exit 1)
-
-      - name: Assert storage on volume-path (Turso shards 落盘)
-        run: |
-          ls /tmp/ochome/opencode-mem/ | head -8
+            (echo "FAIL: 跨会话未召回"; kill $SERVEPID; exit 1)
           test -n "$(ls /tmp/ochome/opencode-mem/*.db 2>/dev/null)" && echo "OK: shards persisted" || \
-            (echo "FAIL: 无 shard 文件"; exit 1)
+            (echo "FAIL: 无 shard 文件"; kill $SERVEPID; exit 1)
+          kill $SERVEPID; echo "ALL GREEN"
