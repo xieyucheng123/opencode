@@ -121,11 +121,16 @@ jobs:
            "autoUpdate": false,
            "showAutoCaptureToasts": false, "showUserProfileToasts": false, "showErrorToasts": false}
           EOF
+          # 关键发现（本地实证）：光写 plugins 配置不断网，插件必须经
+          # `opencode plugin add` 安装。容器先 sleep，由 exec 完成装→起服全流程。
           docker run -d --name oc-memtest --network host \
             -v /tmp/oc-cfg:/root/.config/opencode:ro \
             -v /tmp/ochome-mem:/memdata \
-            ghcr.io/anomalyco/opencode:2.0.28 serve --port 4096 --hostname 127.0.0.1
-          echo "waiting for plugin (npm 拉取 + Turso 初始化要几分钟)"
+            -e OPENCODE_SERVER_PASSWORD=test-srv-pw \
+            ghcr.io/anomalyco/opencode:2.0.28 sleep infinity
+          docker exec oc-memtest opencode plugin add opencode-mem@2.31.1
+          docker exec -d oc-memtest opencode serve --port 4096 --hostname 127.0.0.1
+          echo "waiting for plugin (Turso 初始化要几分钟)"
           for i in $(seq 1 20); do
             curl -sf --max-time 5 http://127.0.0.1:4747/api/health >/dev/null 2>&1 && break
             sleep 15
@@ -133,7 +138,7 @@ jobs:
           curl -sf --max-time 15 http://127.0.0.1:4747/api/health >/dev/null || \
             (echo "FAIL: 插件 5 分钟未起"; docker logs oc-memtest --tail 30; exit 1)
           echo "OK: plugin live"; ls /tmp/ochome-mem/ | head -4
-          OEX="docker exec oc-memtest opencode run --server http://127.0.0.1:4096"
+          OEX="docker exec -e OPENCODE_PASSWORD=test-srv-pw oc-memtest opencode run --server http://127.0.0.1:4096"
           timeout 280 $OEX \
             "reply with exactly: MEM-OK" > /tmp/mem-out.txt 2>&1; tail -4 /tmp/mem-out.txt
           grep -q "MEM-OK" /tmp/mem-out.txt && echo "OK: client closure" || \
