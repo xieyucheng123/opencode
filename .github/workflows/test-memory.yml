@@ -104,6 +104,8 @@ jobs:
           done
           curl -s --max-time 15 http://127.0.0.1:4747/api/health; echo
           curl -s --max-time 15 http://127.0.0.1:4747/api/stats | head -c 300; echo
+          echo "--- serve.log tail:"; tail -30 /tmp/serve.log
+          echo "--- serve proc:"; pgrep -af "opencode serve" | head -3 || echo "serve NOT running"
           ls /tmp/ochome/opencode-mem/ 2>/dev/null | head -6 || echo "(storage dir yet empty)"
           grep -qiE "opencode-mem|memory" /tmp/serve.log | head -3 || true
 
